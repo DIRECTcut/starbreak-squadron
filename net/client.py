@@ -264,8 +264,7 @@ class ClientGame(Game):
             p = self._players[pid]
             if p is not self.players[0]:
                 self.players.append(p)
-        for p in self.players:
-            self._interp_pos(p)
+        # positions are re-interpolated every frame in update()
 
     def _interp_pos(self, p):
         t0 = getattr(p, "_net_prev_t", 0.0)
@@ -329,6 +328,11 @@ class ClientGame(Game):
     def update(self, dt):
         self.t += dt
         self._consume()
+        # the host clock advances between snapshots too, so the
+        # interpolation alpha below is smooth instead of 30 Hz-stepped
+        self._server_t += dt
+        for p in self.players:
+            self._interp_pos(p)
         self.fx = []   # the host is the only source of fx events
         lp = self._local()
         vel = lp.vel if (lp is not None and lp.alive) else V2(0, 0)
