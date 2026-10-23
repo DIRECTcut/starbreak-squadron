@@ -96,6 +96,9 @@ def main():
         from net.host import Host
         g = Game(seed=args.seed, autopilot=bool(bot), mute=args.mute,
                  bot=bot, log_sessions=not args.no_log)
+        g.local_name = name               # seat-0 ship takes the --name flag
+        if g.players:
+            g.players[0].name = name
         g._shot_path = args.screenshot
         g._shot_t = shot_t if args.screenshot else None
         h = Host(g, port=args.port, name=name)

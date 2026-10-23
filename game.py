@@ -56,6 +56,7 @@ class Game:
         self.sess_sample_every = 1.0 / SAMPLE_HZ
         self.run_restarts = 0              # persists across in-run restarts
         self.net = None                    # Host object in net mode (client: None)
+        self.local_name = "You"            # seat-0 name (host sets this from --name)
         self.net_inputs = {}               # pid -> ((x, y), wp|-1), host only
         self.run_id = 0                    # increments per new run (client resync)
         self.can_restart = True            # LAN clients cannot R-relaunch
@@ -76,8 +77,8 @@ class Game:
         if self.net is not None:
             # LAN host: seat 0 = local seat (human or bot), pids 1..3 =
             # whichever remote pilots are connected.
-            self.players = [Player((W / 2, H - 90), pid=0, name=("You" if not
-                                                                 self.autopilot
+            self.players = [Player((W / 2, H - 90), pid=0, name=(self.local_name
+                                                                 if not self.autopilot
                                                                  else "Bot 1"),
                                    bot=(self.bots[0] if self.bots else None))]
             for pid, c in sorted(self.net.clients.items()):

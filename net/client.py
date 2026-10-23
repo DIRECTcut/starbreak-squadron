@@ -27,7 +27,6 @@ from net.protocol import encode, LineBuffer
 from game import Game
 
 LAN_KINDS = ["scout", "gunner", "brute", "dart"]
-_SNAP_LAG = 0.10          # seconds behind the host clock we render
 ENEMY_BOLT_SPEC = WeaponSpec(slot="e", name="E", fire_interval=1.0,
                              damage=0, bolt_speed=400, bolt_radius=4,
                              color=(255, 150, 120))
@@ -220,13 +219,9 @@ class ClientGame(Game):
             if p is None:
                 p = Player((x, y), pid, name, None)
                 self._players[pid] = p
-                p._net_prev = V2(x, y)
-                p._net_prev_t = self._server_t
                 p._net_t = self._server_t
                 p._net_cur = V2(x, y)
             else:
-                p._net_prev = p.pos.copy()
-                p._net_prev_t = p._net_t
                 p._net_t = self._server_t
             p.pos.update(x, y)
             p._net_cur = V2(x, y)       # raw snapshot position (for local extrapolation)
@@ -267,17 +262,6 @@ class ClientGame(Game):
             if p is not self.players[0]:
                 self.players.append(p)
         # positions are re-interpolated every frame in update()
-
-    def _interp_pos(self, p):
-        t0 = getattr(p, "_net_prev_t", 0.0)
-        t1 = getattr(p, "_net_t", 0.0)
-        if t1 <= t0:
-            return
-        a = (self._server_t - _SNAP_LAG - t0) / (t1 - t0)
-        a = max(0.0, min(1.0, a))
-        prev = getattr(p, "_net_prev", None)
-        if prev is not None:
-            p.pos = prev.lerp(p.pos, a)
 
     def _apply_enemies(self, rows):
         seen = set()
@@ -333,17 +317,15 @@ class ClientGame(Game):
         # the host clock advances between snapshots too, so motion is
         # smooth instead of 30 Hz-stepped
         self._server_t += dt
-        lp = self._local()
         for p in self.players:
-            if p is lp:
-                # own ship: extrapolate (predict) like the bolts - a 100 ms
-                # interpolation delay reads as "throttled" on your own controls
-                cur = getattr(p, "_net_cur", p.pos)
-                age = max(0.0, min(0.10, self._server_t - p._net_t))
-                p.pos = cur + p.vel * age
-            else:
-                self._interp_pos(p)
+            # every pilot is predicted from the last snapshot (pos + vel*age,
+            # age capped) - same treatment as bolts; 100 ms delayed
+            # interpolation read as "throttled" motion
+            cur = getattr(p, "_net_cur", p.pos)
+            age = max(0.0, min(0.10, self._server_t - p._net_t))
+            p.pos = cur + p.vel * age
         self.fx = []   # the host is the only source of fx events
+        lp = self._local()
         vel = lp.vel if (lp is not None and lp.alive) else V2(0, 0)
         self.stars.update(vel, dt)
         self._update_particles(dt)
