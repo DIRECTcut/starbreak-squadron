@@ -9,6 +9,7 @@ import socket
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 os.environ["SDL_VIDEODRIVER"] = "dummy"
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
@@ -17,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pygame  # noqa: E402
 
 import config  # noqa: E402
+from net.client import ClientGame, Remote  # noqa: E402
 from net.host import Host  # noqa: E402
 from net.protocol import LineBuffer, encode, build_snapshot  # noqa: E402
 from tests.test_game import make_game, DT  # noqa: E402
@@ -79,6 +81,88 @@ class SnapshotTest(unittest.TestCase):
         self.assertEqual(row[0], 0)    # host seat pid
         self.assertEqual(row[8], 1)    # alive
         self.assertEqual(row[13], "You")
+
+
+class ClientStartupTest(unittest.TestCase):
+    def _client(self):
+        # Keep the real Game/ClientGame constructors and Remote message queue;
+        # only isolate socket I/O and the asynchronous reader for deterministic
+        # delivery (the host need not send a snapshot before the first frame).
+        with patch("net.client.socket_connect"), patch.object(Remote, "start"):
+            client = ClientGame("127.0.0.1", 7747, "Loop", mute=True)
+        self.addCleanup(client.remote.close)
+        return client
+
+    def _deliver(self, client, msg):
+        for decoded in LineBuffer().feed(encode(msg)):
+            client.remote._handle(decoded)
+
+    def test_frames_before_first_snapshot_then_standby(self):
+        client = self._client()
+        for _ in range(3):
+            client.update(DT)  # regression: inherited solo Player has no _net_t
+            client.render()
+            client._draw_lan_overlay()
+        self.assertEqual(client.players, [])
+        self.assertIsNone(client._local())
+        self.assertEqual(client.compute_input(), (0.0, 0.0))
+
+        self._deliver(client, {"k": "roster", "pid": 1,
+                               "names": ["You", "Loop"]})
+        for _ in range(3):
+            client.update(DT)  # roster alone still supplies no player state
+        self.assertEqual(client.players, [])
+
+        host_game = make_game(seed=19, sessions=None, bot="")
+        host_game.net_player_joined(1, "Loop")
+        self._deliver(client, build_snapshot(host_game, 0))
+        client.update(DT)
+        client.render()
+        client._draw_lan_overlay()
+        self.assertEqual(client.state, "menu")
+        self.assertEqual([p.pid for p in client.players], [1, 0])
+        self.assertIs(client.player, client._local())
+        self.assertEqual(client.player.name, "Loop")
+        self.assertTrue(all(hasattr(p, "_net_t") for p in client.players))
+
+    def test_snapshots_predict_all_pilots_and_refresh_existing_players(self):
+        client = self._client()
+        host_game = make_game(seed=20, sessions=None, bot="")
+        host_game.start()
+        host_game.net_player_joined(1, "Loop")
+        host_game.t = 12.0
+        host_game.players[0].vel.update(120, -60)
+        host_game.players[1].vel.update(-90, 30)
+        self._deliver(client, {"k": "roster", "pid": 1,
+                               "names": ["You", "Loop"]})
+        self._deliver(client, build_snapshot(host_game, 0))
+        client.update(DT)
+        players = dict(client._players)
+        for source in host_game.players:
+            actual = players[source.pid]
+            self.assertEqual(actual._net_t, 12.0)
+            self.assertLess(actual.pos.distance_to(source.pos + source.vel * DT),
+                            1e-6)
+
+        for _ in range(20):
+            client.update(DT)
+        for source in host_game.players:
+            self.assertLess(players[source.pid].pos.distance_to(
+                source.pos + source.vel * 0.10), 1e-6)
+
+        host_game.t = 13.0
+        for source in host_game.players:
+            source.pos += pygame.math.Vector2(50, -20)
+            source.vel *= -1
+        self._deliver(client, build_snapshot(host_game, 1))
+        client.update(DT)
+        for source in host_game.players:
+            actual = client._players[source.pid]
+            self.assertIs(actual, players[source.pid])
+            self.assertEqual(actual._net_t, 13.0)
+            self.assertLess(actual.pos.distance_to(source.pos + source.vel * DT),
+                            1e-6)
+        client.render()
 
 
 class HostLoopbackTest(unittest.TestCase):

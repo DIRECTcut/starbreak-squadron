@@ -131,6 +131,8 @@ class ClientGame(Game):
     def __init__(self, addr, port, name, mute=False, bot=""):
         super().__init__(autopilot=False, mute=mute, bot=bot,
                          log_sessions=False)
+        # Game.reset() creates solo pilots; clients wait for host-owned players.
+        self.players = []
         self.can_restart = False        # render hides "R to relaunch"
         self.remote = Remote(addr, port, name)
         self.remote.start()
