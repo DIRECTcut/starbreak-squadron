@@ -46,6 +46,9 @@ class Remote:
         self.snaps = deque(maxlen=6)     # recent snapshots (host t asc)
         self.roster = None               # {"pid":..., "names":[...]}
         self.bye = None                  # set when the connection dies
+        self.drops = 0                   # input sends that failed (buffer full)
+        self.snap_count = 0
+        self.last_snap_wall = None
         self._send_lock = threading.Lock()
         self._pending_out = b""
 
@@ -80,6 +83,8 @@ class Remote:
             self.roster = msg
         elif k == "snap":
             self.snaps.append(msg)
+            self.snap_count += 1
+            self.last_snap_wall = time.monotonic()
         elif k == "bye":
             self.bye = msg.get("reason", "host left")
 
@@ -95,6 +100,7 @@ class Remote:
                 self.sock.sendall(self._pending_out)
                 self._pending_out = b""
         except OSError:
+            self.drops += 1              # buffer full: next input supersedes this one
             pass  # buffer full: the next input supersedes this one
 
     def take_snaps(self):
@@ -372,9 +378,24 @@ class ClientGame(Game):
     def run(self):
         running = True
         run_t = 0.0
+        nb_t, frames = 0.0, 0           # net diagnostics window
+        snap_n0 = frames0 = drops0 = 0
         while running:
             dt = min(1.0 / 20.0, self.clock.tick(FPS) / 1000)
             run_t += dt
+            frames += 1
+            nb_t += dt
+            if nb_t >= 5.0:
+                r = self.remote
+                fresh = ((time.monotonic() - r.last_snap_wall) * 1000.0
+                         if r.last_snap_wall else -1.0)
+                print("[net:client] snaps=%.1f/s fps=%.1f/s fresh=%.1fms "
+                      "input_drops=%d"
+                      % ((r.snap_count - snap_n0) / nb_t,
+                         (frames - frames0) / nb_t,
+                         fresh, r.drops - drops0), flush=True)
+                nb_t = 0.0
+                snap_n0, frames0, drops0 = r.snap_count, frames, r.drops
             if self._shot_path is not None and self._shot_t is not None \
                     and run_t >= self._shot_t:
                 pygame.image.save(self.screen, self._shot_path)

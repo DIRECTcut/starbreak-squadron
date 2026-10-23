@@ -41,6 +41,14 @@ class Host:
         self._snap_every = 1.0 / SNAP_HZ
         self._next_snap_t = 0.0
         self._lock = threading.Lock()
+        # net diagnostics: 5 s heartbeat (rate, costs, snapshot gap)
+        self._st_t = 0.0
+        self._st_snaps = 0
+        self._st_bytes = 0
+        self._st_tick_ms = 0.0
+        self._st_bcast_ms = 0.0
+        self._st_gap_ms = 0.0
+        self._last_snap_wall = None
 
         self.lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -178,6 +186,7 @@ class Host:
     # ---------------- main-thread work (called from the run loop) ----
     def tick(self, dt):
         """Apply join/drop events + inputs and push snapshots."""
+        t0 = time.perf_counter()
         # join/drop -> the game's player list
         roster_changed = False
         while self.events:
@@ -200,10 +209,33 @@ class Host:
         self._next_snap_t -= dt
         if self.clients and self._next_snap_t <= 0.0:
             self._next_snap_t += self._snap_every
-            self._broadcast()
+            nbytes, bms = self._broadcast()
+            now = time.monotonic()
+            if self._last_snap_wall is not None:
+                self._st_gap_ms = (now - self._last_snap_wall) * 1000.0
+            self._last_snap_wall = now
+            self._st_snaps += 1
+            self._st_bytes += nbytes
+            self._st_bcast_ms = bms
+        self._st_tick_ms += (time.perf_counter() - t0) * 1000.0
+        self._st_t += dt
+        if self._st_t >= 5.0:
+            print("[net:host] clients=%d snaps=%.1f/s snap_bytes=%d "
+                  "bcast=%.1fms gap=%.1fms tick=%.1fms"
+                  % (len(self.clients), self._st_snaps / self._st_t,
+                     (self._st_bytes // max(1, self._st_snaps)),
+                     self._st_bcast_ms, self._st_gap_ms,
+                     self._st_tick_ms / self._st_t), flush=True)
+            self._st_t = 0.0
+            self._st_snaps = 0
+            self._st_bytes = 0
+            self._st_tick_ms = 0.0
+            self._st_bcast_ms = 0.0
+            self._st_gap_ms = 0.0
 
     def _broadcast(self):
         from net.protocol import build_snapshot
+        t0 = time.perf_counter()
         line = encode(build_snapshot(self.game, self.seq))
         self.seq += 1
         for c in list(self.clients.values()):
@@ -214,6 +246,7 @@ class Host:
             except OSError:
                 # stuck or gone: stop paying for this seat
                 self._drop(c.pid)
+        return len(line), (time.perf_counter() - t0) * 1000.0
 
     def close(self):
         self.running = False
