@@ -223,11 +223,13 @@ class ClientGame(Game):
                 p._net_prev = V2(x, y)
                 p._net_prev_t = self._server_t
                 p._net_t = self._server_t
+                p._net_cur = V2(x, y)
             else:
                 p._net_prev = p.pos.copy()
                 p._net_prev_t = p._net_t
                 p._net_t = self._server_t
             p.pos.update(x, y)
+            p._net_cur = V2(x, y)       # raw snapshot position (for local extrapolation)
             p.vel.update(vx, vy)
             p.shield, p.armor, p.hull = float(sh), float(ar), float(hu)
             p.alive, p.downed = bool(alive), bool(downed)
@@ -328,13 +330,20 @@ class ClientGame(Game):
     def update(self, dt):
         self.t += dt
         self._consume()
-        # the host clock advances between snapshots too, so the
-        # interpolation alpha below is smooth instead of 30 Hz-stepped
+        # the host clock advances between snapshots too, so motion is
+        # smooth instead of 30 Hz-stepped
         self._server_t += dt
-        for p in self.players:
-            self._interp_pos(p)
-        self.fx = []   # the host is the only source of fx events
         lp = self._local()
+        for p in self.players:
+            if p is lp:
+                # own ship: extrapolate (predict) like the bolts - a 100 ms
+                # interpolation delay reads as "throttled" on your own controls
+                cur = getattr(p, "_net_cur", p.pos)
+                age = max(0.0, min(0.10, self._server_t - p._net_t))
+                p.pos = cur + p.vel * age
+            else:
+                self._interp_pos(p)
+        self.fx = []   # the host is the only source of fx events
         vel = lp.vel if (lp is not None and lp.alive) else V2(0, 0)
         self.stars.update(vel, dt)
         self._update_particles(dt)
