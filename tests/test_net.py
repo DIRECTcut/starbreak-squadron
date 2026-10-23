@@ -125,6 +125,33 @@ class ClientStartupTest(unittest.TestCase):
         self.assertEqual(client.player.name, "Loop")
         self.assertTrue(all(hasattr(p, "_net_t") for p in client.players))
 
+    def test_human_weapon_keys_reach_remote_in_run_loop(self):
+        client = self._client()  # default bot="", just like main.py human mode
+        host_game = make_game(seed=21, sessions=None, bot="")
+        host_game.start()
+        host_game.net_player_joined(1, "Loop")
+        self._deliver(client, {"k": "roster", "pid": 1,
+                               "names": ["You", "Loop"]})
+        self._deliver(client, build_snapshot(host_game, 0))
+        client.update(DT)
+        client.remote.sock.sendall.reset_mock()  # exclude the join handshake
+        events = [[pygame.event.Event(pygame.KEYDOWN, key=key, mod=0)]
+                  for key in (pygame.K_2, pygame.K_3, pygame.K_1)]
+        events += [[], [pygame.event.Event(pygame.QUIT)]]
+        with patch("pygame.event.get", side_effect=events), \
+                patch("pygame.quit"), \
+                patch.object(client, "render", wraps=client.render) as render:
+            client.run()
+        sent = []
+        wire = LineBuffer()
+        for call in client.remote.sock.sendall.call_args_list:
+            sent.extend(wire.feed(call.args[0]))
+        inputs = [msg for msg in sent if msg["k"] == "in"]
+        self.assertEqual([msg["wp"] for msg in inputs], [1, 2, 0, -1])
+        self.assertEqual(render.call_count, 4)
+        # Weapon state remains host-owned, not optimistically changed by keys.
+        self.assertEqual(client.player.weapon_idx, 0)
+
     def test_snapshots_predict_all_pilots_and_refresh_existing_players(self):
         client = self._client()
         host_game = make_game(seed=20, sessions=None, bot="")
@@ -169,6 +196,14 @@ class HostLoopbackTest(unittest.TestCase):
     def _connect(self, host):
         return socket.create_connection(("127.0.0.1", host.port), timeout=5)
 
+    def _seat_join(self, host):
+        # Roster delivery precedes queuing the join event in the reader thread.
+        end = time.monotonic() + 2.0
+        while not any(ev[0] == "join" for ev in host.events):
+            self.assertLess(time.monotonic(), end, "join event not queued")
+            time.sleep(0.002)
+        host.tick(0.01)
+
     def test_join_roster_input_snapshot_drop(self):
         g = make_game(seed=11, sessions=None, bot="")  # no bot -> "You" seat
         h = Host(g, port=0)
@@ -181,7 +216,7 @@ class HostLoopbackTest(unittest.TestCase):
             self.assertEqual(roster["pid"], 1)
             self.assertEqual(roster["names"], ["You", "Loop"])
 
-            h.tick(0.01)  # main thread seats the join
+            self._seat_join(h)  # main thread seats the join
             self.assertEqual(len(g.players), 2)
             self.assertEqual(g.players[1].name, "Loop")
             self.assertEqual(g.players[1].pid, 1)
@@ -193,7 +228,7 @@ class HostLoopbackTest(unittest.TestCase):
                 time.sleep(0.002)      # give the reader thread the CPU
                 h.tick(0.01)
                 mv, wp = g.net_inputs.get(1, ((0.0, 0.0), -1))
-                if mv == (1.0, 1.0):
+                if mv == (1.0, 1.0) and wp == 1:
                     break
             self.assertEqual(mv, (1.0, 1.0))
             self.assertEqual(wp, 1)
@@ -206,9 +241,12 @@ class HostLoopbackTest(unittest.TestCase):
                 time.sleep(0.002)
                 h.tick(0.01)
                 mv, wp = g.net_inputs.get(1, ((0.0, 0.0), -1))
-                if mv == (1.0, 1.0):
+                # Movement persists across start(); wait for the new switch
+                # too, rather than mistaking the previous vector for receipt.
+                if mv == (1.0, 1.0) and wp == 1:
                     break
             self.assertEqual(mv, (1.0, 1.0))
+            self.assertEqual(wp, 1)
             g.update(DT)  # input applied: weapon switch + movement
             self.assertEqual(g.players[1].weapon_idx, 1)
             self.assertGreater(g.players[1].vel.length(), 0.0)
@@ -239,10 +277,67 @@ class HostLoopbackTest(unittest.TestCase):
             roster2 = r2.wait_for(lambda m: m.get("k") == "roster")
             self.assertEqual(roster2["pid"], 1)
             self.assertEqual(roster2["names"], ["You", "Again"])
-            h.tick(0.01)
+            self._seat_join(h)
             s2.close()
         finally:
             h.close()
+
+    def test_weapon_choice_survives_later_inputs_until_consumed_and_rendered(self):
+        g = make_game(seed=22, sessions=None, bot="")
+        h = Host(g, port=0)
+        self.addCleanup(h.close)
+        g.start()
+        client = ClientGame("127.0.0.1", h.port, "Loop", mute=True)
+        self.addCleanup(client.remote.close)
+
+        def wait_until(pred, tick=None):
+            end = time.monotonic() + 2.0
+            while time.monotonic() < end:
+                if tick is not None:
+                    tick()
+                if pred():
+                    return
+                time.sleep(0.002)
+            self.fail("timed out waiting for LAN input/snapshot")
+
+        def receive():
+            h.tick(DT)
+            client.update(DT)
+
+        # Finish the handshake before driving the sim, so the first snapshot
+        # includes this pilot rather than racing the host's join event.
+        wait_until(lambda: client.remote.roster is not None and bool(h.events))
+        wait_until(lambda: client._local() is not None, tick=receive)
+        pid = client.remote_pid
+        # No host tick during each burst: TCP may deliver multiple 60 Hz
+        # inputs before the sim consumes them. None encodes the wp=-1 no-op.
+        for seq, (choices, expected) in enumerate([
+                ((1, None, None), 1),
+                ((2, 0, None), 0),  # latest choice wins, including slot zero
+                ((2, None, None), 2)], start=1):
+            with self.subTest(choices=choices):
+                for i, wp in enumerate(choices):
+                    client.remote.send_input((seq, i), wp)
+                # Seeing the final movement proves the preceding lines were
+                # read, including the no-op after the first switch.
+                wait_until(lambda: h.clients[pid].mv == [seq, 2])
+                h.tick(DT)
+                self.assertEqual(g.net_inputs[pid][1], expected)
+                g.update(DT)
+                self.assertEqual(g._by_pid(pid).weapon_idx, expected)
+                self.assertEqual(g.players[0].weapon_idx, 0)
+                h.tick(0.05)  # post-simulation snapshot + consume only once
+                self.assertEqual(g.net_inputs[pid][1], -1)
+                wait_until(lambda: client.player.weapon_idx == expected,
+                           tick=lambda: client.update(DT))
+                self.assertIs(client.player, client._local())
+                client.render()
+                for slot in range(3):
+                    x = config.W - 26 - 176 * (3 - slot)
+                    y = config.H - 50 - (2 - slot) * 30
+                    bg = (40, 48, 70) if slot == expected else (22, 26, 40)
+                    self.assertEqual(tuple(client.screen.get_at((x + 3, y + 3)))[:3],
+                                     bg)
 
     def test_room_full_rejects_a_fourth(self):
         g = make_game(seed=12, sessions=None, bot="")
@@ -253,7 +348,7 @@ class HostLoopbackTest(unittest.TestCase):
                 s = self._connect(h)
                 s.sendall(encode({"k": "join", "name": "P%d" % i}))
                 _Reader(s).wait_for(lambda m: m.get("k") == "roster")
-                h.tick(0.01)
+                self._seat_join(h)
                 socks.append(s)
             self.assertEqual(len(g.players), 4)
             s4 = self._connect(h)

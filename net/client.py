@@ -409,7 +409,7 @@ class ClientGame(Game):
                                                pygame.KMOD_CTRL)))
                     if quit_keys:
                         running = False
-                    elif self._local_bot is None and self.state == "play":
+                    elif not self._local_bot and self.state == "play":
                         if event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
                             self._pending_wp = event.key - pygame.K_1
                         elif event.key == pygame.K_ESCAPE:
