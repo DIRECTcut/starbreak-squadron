@@ -132,9 +132,16 @@ class Host:
                         except (TypeError, ValueError, IndexError):
                             c.mv = [0.0, 0.0]
                         wp = msg.get("wp", -1)
-                        c.wp = int(wp) if isinstance(wp, int) else -1
+                        if isinstance(wp, int) and wp >= 0:
+                            # -1 means no new choice, not cancellation. Keep
+                            # the latest switch until the sim consumes it.
+                            with self._lock:
+                                c.wp = wp
                         tt = msg.get("t", 0)
-                        c.t = int(tt) if isinstance(tt, int) else 0
+                        if isinstance(tt, int) and tt > 0:
+                            # same one-shot-until-consumed rule for target ops
+                            with self._lock:
+                                c.t = tt
                     elif k == "bye" and pid is not None:
                         break
         except OSError:
@@ -204,10 +211,11 @@ class Host:
                 self._send_roster(c)
         # inputs -> game.net_inputs {pid: ((x, y), wp|-1, t)}
         inputs = {}
-        for pid, c in self.clients.items():
-            inputs[pid] = (tuple(c.mv), c.wp, c.t)
-            c.wp = -1          # one-shot weapon change
-            c.t = 0            # one-shot target op
+        with self._lock:
+            for pid, c in self.clients.items():
+                inputs[pid] = (tuple(c.mv), c.wp, c.t)
+                c.wp = -1          # one-shot weapon change, atomic with staging
+                c.t = 0            # one-shot target op (1 next / 2 prev / 3 auto)
         self.game.net_inputs = inputs
         # snapshots
         self._next_snap_t -= dt
