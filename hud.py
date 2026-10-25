@@ -108,6 +108,8 @@ def draw_player_extras(surf, g):
         # name tag: local player cyan, teammates gold
         col = (170, 235, 255) if i == 0 else (255, 225, 150)
         label = p.name + ("  [YOU]" if i == 0 and len(g.players) > 1 else "")
+        if getattr(p, "target_rank", None) is not None:
+            label += "  [LOCK]"
         text(surf, label, 15, col, x, y - 42, align="center", bold=(i == 0))
         # compact stacked bars
         bx, bw, by = x - 22, 44, y - 32
@@ -133,7 +135,9 @@ def draw_menu(surf, g, t):
          W // 2, cy - 72, align="center")
     lines = [
         "WASD / ARROWS ......... flight (inertial thrust)",
-        "AUTO .................. weapons auto-lock nearest ship",
+        "AUTO .................. weapons auto-lock the nearest ship",
+        "[  /  ] ............... manual lock: previous / next target",
+        "T ..................... back to auto-lock",
         "1 / 2 / 3 ............. pulse blaster / scattergun / homing missiles",
         "P ..................... pause",
         "                   ",

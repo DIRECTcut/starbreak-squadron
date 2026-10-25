@@ -87,11 +87,12 @@ class Remote:
         elif k == "bye":
             self.bye = msg.get("reason", "host left")
 
-    def send_input(self, mv, wp):
+    def send_input(self, mv, wp, t=0):
         """Send the latest input. Non-blocking; stale bytes get dropped."""
         line = encode({"k": "in",
                        "mv": [round(float(mv[0]), 2), round(float(mv[1]), 2)],
-                       "wp": int(wp) if wp is not None else -1})
+                       "wp": int(wp) if wp is not None else -1,
+                       "t": int(t)})
         try:
             with self._send_lock:
                 self._pending_out = self._pending_out[-512:] + line
@@ -144,6 +145,8 @@ class ClientGame(Game):
         self._prev_local_def = None
         self._local_bot = bot
         self._pending_wp = None
+        self._pending_t = 0            # target op: 0 none, 1 next, 2 prev, 3 auto
+        self._bot_cycle_t = 0.0        # client bot target-cycling timer (playtest)
 
     # ---------------------------------------------------------- snapshot in
     def _consume(self):
@@ -318,11 +321,14 @@ class ClientGame(Game):
         # smooth instead of 30 Hz-stepped
         self._server_t += dt
         for p in self.players:
+            nt = getattr(p, "_net_t", None)
+            if nt is None:
+                continue             # not snapshot-seeded yet (pre-lobby standby)
             # every pilot is predicted from the last snapshot (pos + vel*age,
             # age capped) - same treatment as bolts; 100 ms delayed
             # interpolation read as "throttled" motion
             cur = getattr(p, "_net_cur", p.pos)
-            age = max(0.0, min(0.10, self._server_t - p._net_t))
+            age = max(0.0, min(0.10, self._server_t - nt))
             p.pos = cur + p.vel * age
         self.fx = []   # the host is the only source of fx events
         lp = self._local()
@@ -410,6 +416,12 @@ class ClientGame(Game):
                     elif self._local_bot is None and self.state == "play":
                         if event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
                             self._pending_wp = event.key - pygame.K_1
+                        elif event.key == pygame.K_RIGHTBRACKET:   # ] next target
+                            self._pending_t = 1
+                        elif event.key == pygame.K_LEFTBRACKET:    # [ prev target
+                            self._pending_t = 2
+                        elif event.key == pygame.K_t:              # T auto-lock
+                            self._pending_t = 3
                         elif event.key == pygame.K_ESCAPE:
                             running = False
                     elif event.key == pygame.K_ESCAPE and self.state in \
@@ -421,7 +433,15 @@ class ClientGame(Game):
                 if self.remote_pid is not None:
                     wp = self._pending_wp
                     self._pending_wp = None
-                    self.remote.send_input(self.compute_input(), wp)
+                    t_op = self._pending_t
+                    self._pending_t = 0
+                    if self._local_bot is not None and self.state == "play":
+                        # bot playtest: exercise the target-cycling path over the wire
+                        self._bot_cycle_t += dt
+                        if self._bot_cycle_t >= 2.5:
+                            self._bot_cycle_t = 0.0
+                            t_op = 1
+                    self.remote.send_input(self.compute_input(), wp, t_op)
                 self.update(dt)
                 self.render()
                 self._draw_lan_overlay()

@@ -18,7 +18,7 @@ from net.protocol import encode, LineBuffer, MAX_REMOTE, SNAP_HZ
 
 
 class _Client:
-    __slots__ = ("sock", "addr", "name", "pid", "stream", "mv", "wp", "slock")
+    __slots__ = ("sock", "addr", "name", "pid", "stream", "mv", "wp", "t", "slock")
 
     def __init__(self, sock, addr, name, pid):
         self.sock = sock
@@ -28,6 +28,7 @@ class _Client:
         self.stream = LineBuffer()
         self.mv = [0.0, 0.0]        # latest movement vector (unnormalized)
         self.wp = -1                # pending weapon choice (-1 = none)
+        self.t = 0                  # pending target op (0 none, 1 next, 2 prev, 3 auto)
         self.slock = threading.Lock()  # one writer per connection
 
 
@@ -132,6 +133,8 @@ class Host:
                             c.mv = [0.0, 0.0]
                         wp = msg.get("wp", -1)
                         c.wp = int(wp) if isinstance(wp, int) else -1
+                        tt = msg.get("t", 0)
+                        c.t = int(tt) if isinstance(tt, int) else 0
                     elif k == "bye" and pid is not None:
                         break
         except OSError:
@@ -199,11 +202,12 @@ class Host:
         if roster_changed:
             for c in list(self.clients.values()):
                 self._send_roster(c)
-        # inputs -> game.net_inputs {pid: ((x, y), wp|-1)}
+        # inputs -> game.net_inputs {pid: ((x, y), wp|-1, t)}
         inputs = {}
         for pid, c in self.clients.items():
-            inputs[pid] = (tuple(c.mv), c.wp)
+            inputs[pid] = (tuple(c.mv), c.wp, c.t)
             c.wp = -1          # one-shot weapon change
+            c.t = 0            # one-shot target op
         self.game.net_inputs = inputs
         # snapshots
         self._next_snap_t -= dt

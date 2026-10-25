@@ -61,6 +61,8 @@ AUTOQUIT=20 ./scripts/soak_lan.sh   # host bot + client bot, no exceptions, scre
 | `1` | **PULSE-7** — rapid, accurate beam |
 | `2` | **SCATTER-V** — 5-pellet blast cone |
 | `3` | **HOMER-X** — homing missile with AoE splash |
+| `[` / `]` | **manual target lock** — pin, then step to previous / next nearest |
+| `T` | back to auto-lock (nearest ship) |
 | `P` / `Esc` | pause |
 | `R` | restart (in flight or on game over) |
 
@@ -85,6 +87,13 @@ AUTOQUIT=20 ./scripts/soak_lan.sh   # host bot + client bot, no exceptions, scre
     "strafe in circles, take no damage" meta.
 - **Waves** scale in count, HP, speed and damage; enemies spawn staggered
   from off-screen edges.
+- **Targeting:** weapons auto-lock the **nearest** ship in range (default).
+  `[` / `]` pin a manual lock — the first press pins the ship you were already
+  auto-aiming (no jump), subsequent presses step through the nearest ships;
+  a locked target that dies hands its rank to whatever becomes nearest in
+  that slot; `T` returns to auto. Manual locks render gold so co-op players
+  can tell them apart. In LAN play the same ops ride over the wire (`t` field,
+  one-shot like weapon switches).
 - Score, kill feed, wave announcements, damage flash + screen shake,
   explosions, missile trails, salvage magnetism, low-hull warning pulse.
 

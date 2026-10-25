@@ -102,32 +102,34 @@ class HostLoopbackTest(unittest.TestCase):
             self.assertEqual(g.players[1].name, "Loop")
             self.assertEqual(g.players[1].pid, 1)
 
-            s.sendall(encode({"k": "in", "mv": [1, 1], "wp": 1}))
-            mv, wp = (0.0, 0.0), -1
+            s.sendall(encode({"k": "in", "mv": [1, 1], "wp": 1, "t": 1}))
+            mv, wp, t_op = (0.0, 0.0), -1, 0
             end = time.perf_counter() + 2.0
             while time.perf_counter() < end:
                 time.sleep(0.002)      # give the reader thread the CPU
                 h.tick(0.01)
-                mv, wp = g.net_inputs.get(1, ((0.0, 0.0), -1))
+                mv, wp, t_op = g.net_inputs.get(1, ((0.0, 0.0), -1, 0))
                 if mv == (1.0, 1.0):
                     break
             self.assertEqual(mv, (1.0, 1.0))
             self.assertEqual(wp, 1)
+            self.assertEqual(t_op, 1)  # target-cycle op staged
 
             g.start()  # reset() clears staged inputs; the client re-sends at 60 Hz
-            s.sendall(encode({"k": "in", "mv": [1, 1], "wp": 1}))
-            mv, wp = (0.0, 0.0), -1
+            s.sendall(encode({"k": "in", "mv": [1, 1], "wp": 1, "t": 1}))
+            mv, wp, t_op = (0.0, 0.0), -1, 0
             end = time.perf_counter() + 2.0
             while time.perf_counter() < end:
                 time.sleep(0.002)
                 h.tick(0.01)
-                mv, wp = g.net_inputs.get(1, ((0.0, 0.0), -1))
+                mv, wp, t_op = g.net_inputs.get(1, ((0.0, 0.0), -1, 0))
                 if mv == (1.0, 1.0):
                     break
             self.assertEqual(mv, (1.0, 1.0))
-            g.update(DT)  # input applied: weapon switch + movement
+            g.update(DT)  # input applied: weapon switch + movement + target lock
             self.assertEqual(g.players[1].weapon_idx, 1)
             self.assertGreater(g.players[1].vel.length(), 0.0)
+            self.assertEqual(g.players[1].target_rank, 0)  # auto: first press pins rank 0
 
             snap = r.wait_for(lambda m: m.get("k") == "snap" and m["st"] == "play",
                               tick=h.tick)
@@ -135,9 +137,10 @@ class HostLoopbackTest(unittest.TestCase):
             self.assertEqual(len(snap["pl"]), 2)
             self.assertEqual(snap["rs"], 1)
 
-            # the pending weapon switch is one-shot
+            # the pending weapon switch + target op are one-shot
             h.tick(0.01)
             self.assertEqual(g.net_inputs[1][1], -1)
+            self.assertEqual(g.net_inputs[1][2], 0)
 
             # disconnect -> ship goes down, pid is reusable
             s.close()

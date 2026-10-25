@@ -32,6 +32,7 @@ class Player:
         self.shield_timer = SHIELD_REGEN_DELAY  # start regenerating immediately
 
         self.weapon_idx = 0
+        self.target_rank = None       # None = auto (nearest); int = manual rank
         self.fire_cd = 0.0
         self.hit_flash = 0.0
         self.contact_cd = 0.0
@@ -114,14 +115,30 @@ class Player:
         self.hull += a
         pts -= a
 
-    # ---- targeting (Everspace-style auto-lock on nearest) ----
+    # ---- targeting: auto-lock, with manual next/prev pinning ----
     def target(self, enemies):
-        best, bd = None, AIM_RANGE
-        for e in enemies:
-            d = (e.pos - self.pos).length()
-            if d < bd:
-                best, bd = e, d
-        return best
+        cands = [e for e in enemies
+                 if not e.dead and (e.pos - self.pos).length_squared() < AIM_RANGE ** 2]
+        if not cands:
+            return None
+        # rank is evaluated live against a distance ordering, so "next/prev"
+        # always means the next-/prev-nearest ship, and a locked target that
+        # dies hands the rank straight to whatever becomes that distance slot
+        cands.sort(key=lambda e: e.pos.distance_squared_to(self.pos))
+        if self.target_rank is None:
+            return cands[0]          # auto: nearest
+        return cands[self.target_rank % len(cands)]
+
+    def cycle_target(self, delta):
+        """Step the manual lock. From auto, the first press pins the ship we
+        were already auto-aiming (no jump); further presses step away from it."""
+        if self.target_rank is None:
+            self.target_rank = 0
+        else:
+            self.target_rank += delta    # negative wraps via % when selected
+
+    def clear_target(self):
+        self.target_rank = None        # back to auto-lock
 
     # ---- update ----
     def update(self, world, move_dir, dt):

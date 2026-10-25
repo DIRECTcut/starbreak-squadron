@@ -318,13 +318,19 @@ class Game:
         return n if n.length_squared() > 0.01 else dn_out
 
     def player_input(self, p):
-        if self.autopilot or p.bot is not None:
-            return self.autopilot_input(p)
         if self.net is not None and p.pid != 0:
             # remote pilot: input arrived over the wire at 60 Hz (staged in
             # game.net_inputs by Host.tick). No key polling here.
             ni = self.net_inputs.get(p.pid)
-            mv, wp = (ni[0], ni[1]) if ni else ((0.0, 0.0), -1)
+            mv, wp, t = (ni if len(ni) == 3 else (ni[0], ni[1], 0)) if ni \
+                         else ((0.0, 0.0), -1, 0)
+            if t in (1, 2, 3):
+                if t == 1:
+                    p.cycle_target(1)
+                elif t == 2:
+                    p.cycle_target(-1)
+                else:
+                    p.clear_target()
             if wp is not None and wp >= 0 and p.weapon_idx != wp:
                 p.weapon_idx = wp
                 if self.session is not None:
@@ -335,6 +341,8 @@ class Game:
             if m.length() > 1.0:
                 m = m.normalize()
             return m
+        if self.autopilot or p.bot is not None:
+            return self.autopilot_input(p)
         # local human player (pid 0)
         keys = pygame.key.get_pressed()
         x = (keys[pygame.K_d] or keys[pygame.K_RIGHT]) - (keys[pygame.K_a] or keys[pygame.K_LEFT])
@@ -643,10 +651,11 @@ class Game:
             return
         ax, ay = int(p.pos.x), int(p.pos.y)
         bx, by = int(tgt.pos.x), int(tgt.pos.y)
-        c = (95, 225, 255)
+        manual = getattr(p, "target_rank", None) is not None
+        c = (255, 210, 110) if manual else (95, 225, 255)
         line = [pygame.math.Vector2(ax, ay), pygame.math.Vector2(bx, by)]
         try:
-            pygame.draw.line(s, c, line, 1)
+            pygame.draw.line(s, c, line, 2 if manual else 1)
         except Exception:
             pass
         r = tgt.radius + 10 + 2 * math.sin(self.t * 8)
@@ -680,6 +689,12 @@ class Game:
                 self._select_weapon(1)
             elif k == pygame.K_3:
                 self._select_weapon(2)
+            elif k == pygame.K_RIGHTBRACKET:      # ] : lock target - next
+                self.player.cycle_target(1)
+            elif k == pygame.K_LEFTBRACKET:       # [ : lock target - previous
+                self.player.cycle_target(-1)
+            elif k == pygame.K_t:                 # T : back to auto-lock
+                self.player.clear_target()
             elif k == pygame.K_r:
                 self.start()
         elif self.state == "pause":
