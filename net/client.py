@@ -219,7 +219,7 @@ class ClientGame(Game):
     def _apply_players(self, rows):
         for row in rows:
             (pid, x, y, vx, vy, sh, ar, hu, alive, downed, rp, wp_i, hd,
-             name, score, kills, fired, hit, flash, stimer) = row
+             name, score, kills, fired, hit, flash, stimer, lock_id, man) = row
             p = self._players.get(pid)
             if p is None:
                 p = Player((x, y), pid, name, None)
@@ -241,6 +241,9 @@ class ClientGame(Game):
             p.shots_fired, p.shots_hit = int(fired), int(hit)
             p.hit_flash = max(0.0, flash)
             p.shield_timer = stimer
+            # host-authoritative targeting: identity lock + manual flag
+            p.aim_id = int(lock_id) if int(lock_id) >= 0 else None
+            p.target_manual = bool(man)
             p.bot = self._local_bot if pid == self.remote_pid else None
             # local-only: detect defense drops for hit feedback + sfx
             if pid == self.remote_pid:

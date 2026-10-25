@@ -77,10 +77,12 @@ class SnapshotTest(unittest.TestCase):
         row = snap["pl"][0]
         # pid, x,y,vx,vy, shield,armor,hull, alive,downed, revive, wp, heading,
         # name, score, kills, fired, hit, hit_flash, shield_timer
-        self.assertEqual(len(row), 20)
+        self.assertEqual(len(row), 22)
         self.assertEqual(row[0], 0)    # host seat pid
         self.assertEqual(row[8], 1)    # alive
         self.assertEqual(row[13], "You")
+        self.assertEqual(row[20], -1)  # aim lock: none yet = -1
+        self.assertEqual(row[21], 0)   # not a manual lock
 
 
 class ClientStartupTest(unittest.TestCase):
@@ -248,10 +250,28 @@ class HostLoopbackTest(unittest.TestCase):
                     break
             self.assertEqual(mv, (1.0, 1.0))
             self.assertEqual(wp, 1)
+            # two live enemies so the target-cycle op has something to cycle to
+            p = g.players[1]
+            e_a = g.make_enemy("scout", (p.pos.x + 80, p.pos.y))
+            e_b = g.make_enemy("gunner", (p.pos.x + 240, p.pos.y))
+            g.enemies += [e_a, e_b]
             g.update(DT)  # input applied: weapon switch + movement + target lock
             self.assertEqual(g.players[1].weapon_idx, 1)
             self.assertGreater(g.players[1].vel.length(), 0.0)
-            self.assertEqual(g.players[1].target_rank, 0)  # auto: first press pins rank 0
+            self.assertEqual(g.players[1].aim_id, e_a.id)  # first press pins nearest
+            self.assertTrue(g.players[1].target_manual)
+
+            # second cycle op moves the lock to the next ship by identity
+            s.sendall(encode({"k": "in", "mv": [1, 1], "wp": -1, "t": 1}))
+            end = time.perf_counter() + 2.0
+            while time.perf_counter() < end:
+                time.sleep(0.002)
+                h.tick(0.01)
+                if g.net_inputs.get(1, ((0.0, 0.0), -1, 0))[2] == 1:
+                    break
+            g.update(DT)
+            self.assertEqual(g.players[1].aim_id, e_b.id)      # stepped by identity
+            self.assertEqual(g.players[1].target(g.enemies), e_b)
 
             snap = r.wait_for(lambda m: m.get("k") == "snap" and m["st"] == "play",
                               tick=h.tick)

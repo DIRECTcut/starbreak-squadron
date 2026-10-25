@@ -49,7 +49,9 @@ def build_snapshot(game, seq):
                    1 if p.alive else 0, 1 if p.downed else 0,
                    r2(p.revive_progress), ri(p.weapon_idx), r2(p.heading),
                    p.name, ri(p.score), ri(p.kills), ri(p.shots_fired),
-                   ri(p.shots_hit), r2(p.hit_flash), r2(p.shield_timer)])
+                   ri(p.shots_hit), r2(p.hit_flash), r2(p.shield_timer),
+                   ri(p.aim_id) if getattr(p, "aim_id", None) is not None else -1,
+                   1 if getattr(p, "target_manual", False) else 0])
 
     en = []
     for e in game.enemies:

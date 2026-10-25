@@ -407,73 +407,86 @@ class DifficultyTest(unittest.TestCase):
 
 
 class TargetingTest(unittest.TestCase):
-    """Manual target selection: auto-lock default, [ / ] cycling, T to undo,"""
+    """Sticky, identity-based targeting: the aim holds on a ship until it dies
+    or the pilot deliberately switches ([ ] or T)."""
 
     def _setup(self, seed=4):
         g = make_game(seed=seed, autopilot=False, bot="")
         g.start()
         p = g.players[0]
         p.pos.update(500.0, 500.0)
-        # three enemies at 50 / 250 / 450 px east
-        e_near = g.make_enemy("scout", (550.0, 500.0))
-        e_mid = g.make_enemy("gunner", (750.0, 500.0))
-        e_far = g.make_enemy("brute", (950.0, 500.0))
-        g.enemies.append(e_near)
-        g.enemies.append(e_mid)
-        g.enemies.append(e_far)
+        # non-collinear so that player movement actually reorders the distances
+        e_near = g.make_enemy("scout", (550.0, 500.0))    # 50 px  (east)
+        e_mid = g.make_enemy("gunner", (500.0, 250.0))    # 250 px (north)
+        e_far = g.make_enemy("brute", (950.0, 500.0))     # 450 px (east)
+        g.enemies += [e_near, e_mid, e_far]
         return g, p, e_near, e_mid, e_far
 
-    def test_auto_locks_nearest(self):
-        g, p, e_near, e_mid, e_far = self._setup()
-        self.assertEqual(p.target(g.enemies), e_near)
-
-    def test_first_press_pins_auto_target(self):
+    def test_auto_holds_target_when_new_closer_enemy_spawns(self):
         g, p, e_near, _, _ = self._setup()
-        p.cycle_target(1)
-        self.assertEqual(p.target_rank, 0)
-        self.assertEqual(p.target(g.enemies), e_near)   # no jump on first press
-
-    def test_next_prev_step_through_distance_order(self):
-        g, p, e_near, e_mid, e_far = self._setup()
-        for rank, want in ((1, e_near), (2, e_mid), (3, e_far)):
-            p.cycle_target(1)
-            self.assertEqual(p.target(g.enemies), want, "cycle to rank %d" % (rank - 1))
-        p.cycle_target(1)  # wrap-around
         self.assertEqual(p.target(g.enemies), e_near)
-        p.cycle_target(-1)  # previous wraps back
-        self.assertEqual(p.target(g.enemies), e_far)
+        e_new = g.make_enemy("dart", (520.0, 500.0))   # closer, all still alive
+        g.enemies.append(e_new)
+        self.assertEqual(p.target(g.enemies), e_near, "auto aim must not jump")
 
-    def test_prev_from_auto_pins_then_steps_back(self):
+    def test_auto_holds_within_range_but_releases_out_of_range(self):
         g, p, e_near, e_mid, e_far = self._setup()
-        p.cycle_target(-1)          # pins auto target (rank 0)
-        self.assertEqual(p.target(g.enemies), e_near)
-        p.cycle_target(-1)          # rank 0 -> -1 -> mod wraps to last (farthest)
-        self.assertEqual(p.target(g.enemies), e_far)
-
-    def test_clear_returns_to_auto(self):
-        g, p, e_near, _, _ = self._setup()
-        p.cycle_target(1); p.cycle_target(1)          # lock mid-enemy
-        p.clear_target()                              # back to auto
-        self.assertIsNone(p.target_rank)
-        self.assertEqual(p.target(g.enemies), e_near)
-        # auto keeps tracking whatever is nearest, even if the lock order shifted
-        p.pos.update(940.0, 500.0)                    # now the far enemy is nearest
-        self.assertEqual(p.target(g.enemies), [e for e in g.enemies
-                                               if e.pos.x == 950.0][0])
-
-    def test_locked_target_death_hands_rank_to_next(self):
-        g, p, e_near, e_mid, e_far = self._setup()
-        p.cycle_target(1); p.cycle_target(1)          # rank 1 = mid
+        p.cycle_target(1, g.enemies); p.cycle_target(1, g.enemies)
         self.assertEqual(p.target(g.enemies), e_mid)
-        e_mid.hp = 0                                  # killed
-        self.assertEqual(p.target(g.enemies), e_far)  # rank 1 of [near, far]
+        p.pos.update(1500.0, 500.0)                     # e_mid now 1325 px away
+        self.assertNotEqual(p.target(g.enemies), e_mid)  # out of range: released
+
+    def test_auto_reacquires_nearest_after_target_dies(self):
+        g, p, e_near, e_mid, _ = self._setup()
+        self.assertEqual(p.target(g.enemies), e_near)
+        e_near.hp = 0
+        self.assertEqual(p.target(g.enemies), e_mid)
+
+    def test_manual_lock_survives_newer_and_closer_enemies(self):
+        g, p, e_near, e_mid, _ = self._setup()
+        p.cycle_target(1, g.enemies)                    # pin nearest
+        p.cycle_target(1, g.enemies)                    # step to mid
+        self.assertEqual(p.target(g.enemies), e_mid)
+        g.enemies.append(g.make_enemy("dart", (510.0, 500.0)))
+        self.assertEqual(p.target(g.enemies), e_mid, "manual lock must not slide")
+
+    def test_manual_lock_survives_pure_player_movement(self):
+        g, p, e_near, e_mid, e_far = self._setup()
+        p.cycle_target(1, g.enemies)                    # pin nearest
+        p.cycle_target(1, g.enemies)                    # -> mid
+        p.cycle_target(1, g.enemies)                    # -> far
+        self.assertEqual(p.target(g.enemies), e_far)
+        p.pos.update(900.0, 500.0)   # distance order reorders; lock must hold
+        self.assertEqual(p.target(g.enemies), e_far, "lock must not slide on move")
+
+    def test_manual_steps_through_distance_order_with_wrap(self):
+        g, p, e_near, e_mid, e_far = self._setup()
+        p.cycle_target(1, g.enemies);      self.assertEqual(p.target(g.enemies), e_near)
+        p.cycle_target(1, g.enemies);      self.assertEqual(p.target(g.enemies), e_mid)
+        p.cycle_target(1, g.enemies);      self.assertEqual(p.target(g.enemies), e_far)
+        p.cycle_target(1, g.enemies);      self.assertEqual(p.target(g.enemies), e_near, "wrap")
+        p.cycle_target(-1, g.enemies);     self.assertEqual(p.target(g.enemies), e_far, "prev wraps back")
+
+    def test_t_returns_to_auto_and_reacquires_nearest(self):
+        g, p, e_near, e_mid, _ = self._setup()
+        p.cycle_target(1, g.enemies); p.cycle_target(1, g.enemies)
+        self.assertTrue(p.target_manual)
+        p.clear_target()
+        self.assertFalse(p.target_manual)
+        self.assertIsNone(p.aim_id)
+        self.assertEqual(p.target(g.enemies), e_near)   # auto re-acquires nearest
+
+    def test_locked_target_death_releases_lock(self):
+        g, p, e_near, e_mid, e_far = self._setup()
+        p.cycle_target(1, g.enemies); p.cycle_target(1, g.enemies)
+        self.assertEqual(p.target(g.enemies), e_mid)
+        e_mid.hp = 0
+        self.assertEqual(p.target(g.enemies), e_near)   # reacquire nearest, no dead target
 
     def test_out_of_range_has_no_target(self):
         g, p, e_near, e_mid, e_far = self._setup()
-        for e in (e_near, e_mid, e_far):
+        for e in g.enemies:
             e.pos.y += 900                            # all beyond AIM_RANGE (580)
-        self.assertIsNone(p.target(g.enemies))
-        p.cycle_target(1)
         self.assertIsNone(p.target(g.enemies))
 
 

@@ -347,9 +347,9 @@ class Game:
                          else ((0.0, 0.0), -1, 0)
             if t in (1, 2, 3):
                 if t == 1:
-                    p.cycle_target(1)
+                    p.cycle_target(1, self.enemies)
                 elif t == 2:
-                    p.cycle_target(-1)
+                    p.cycle_target(-1, self.enemies)
                 else:
                     p.clear_target()
             if wp is not None and wp >= 0 and p.weapon_idx != wp:
@@ -672,7 +672,7 @@ class Game:
             return
         ax, ay = int(p.pos.x), int(p.pos.y)
         bx, by = int(tgt.pos.x), int(tgt.pos.y)
-        manual = getattr(p, "target_rank", None) is not None
+        manual = getattr(p, "target_manual", False)
         c = (255, 210, 110) if manual else (95, 225, 255)
         line = [pygame.math.Vector2(ax, ay), pygame.math.Vector2(bx, by)]
         try:
@@ -717,9 +717,9 @@ class Game:
             elif k == pygame.K_3:
                 self._select_weapon(2)
             elif k == pygame.K_RIGHTBRACKET:      # ] : lock target - next
-                self.player.cycle_target(1)
+                self.player.cycle_target(1, self.enemies)
             elif k == pygame.K_LEFTBRACKET:       # [ : lock target - previous
-                self.player.cycle_target(-1)
+                self.player.cycle_target(-1, self.enemies)
             elif k == pygame.K_t:                 # T : back to auto-lock
                 self.player.clear_target()
             elif k == pygame.K_r:

@@ -32,7 +32,8 @@ class Player:
         self.shield_timer = SHIELD_REGEN_DELAY  # start regenerating immediately
 
         self.weapon_idx = 0
-        self.target_rank = None       # None = auto (nearest); int = manual rank
+        self.aim_id = None                    # locked target identity (sticky)
+        self.target_manual = False            # manual lock = gold HUD
         self.fire_cd = 0.0
         self.hit_flash = 0.0
         self.contact_cd = 0.0
@@ -113,30 +114,52 @@ class Player:
         self.hull += a
         pts -= a
 
-    # ---- targeting: auto-lock, with manual next/prev pinning ----
+    # ---- targeting: sticky by identity, with manual next/prev stepping ----
     def target(self, enemies):
+        """Resolve the current target. Identity-based and sticky:
+        - once we are aiming at a ship, we stay on it (even if something
+          closer spawns or we move around it)
+        - we reacquire (nearest ship) only when there is no lock yet or
+          the locked ship died / left range"""
         cands = [e for e in enemies
                  if not e.dead and (e.pos - self.pos).length_squared() < AIM_RANGE ** 2]
         if not cands:
+            self.aim_id = None
             return None
-        # rank is evaluated live against a distance ordering, so "next/prev"
-        # always means the next-/prev-nearest ship, and a locked target that
-        # dies hands the rank straight to whatever becomes that distance slot
+        if self.aim_id is not None:
+            for e in cands:
+                if e.id == self.aim_id:
+                    return e             # sticky: held target wins, no re-sort
+            self.aim_id = None           # died or out of range: release
         cands.sort(key=lambda e: e.pos.distance_squared_to(self.pos))
-        if self.target_rank is None:
-            return cands[0]          # auto: nearest
-        return cands[self.target_rank % len(cands)]
+        self.aim_id = cands[0].id        # acquire nearest, remember its identity
+        return cands[0]
 
-    def cycle_target(self, delta):
-        """Step the manual lock. From auto, the first press pins the ship we
-        were already auto-aiming (no jump); further presses step away from it."""
-        if self.target_rank is None:
-            self.target_rank = 0
+    def cycle_target(self, delta, enemies):
+        """Step the lock to the next/previous ship (by live distance order).
+        From an unaimed/auto state the first press pins the nearest (no jump);
+        subsequent presses step one ship away in the requested direction."""
+        cands = [e for e in enemies
+                 if not e.dead and (e.pos - self.pos).length_squared() < AIM_RANGE ** 2]
+        if not cands:
+            return
+        cands.sort(key=lambda e: e.pos.distance_squared_to(self.pos))
+        if self.aim_id is None:
+            # first press pins the ship we'd auto-aim anyway (no jump)
+            self.aim_id = cands[0].id
         else:
-            self.target_rank += delta    # negative wraps via % when selected
+            idx = 0
+            for i, e in enumerate(cands):
+                if e.id == self.aim_id:
+                    idx = i
+                    break
+            self.aim_id = cands[(idx + delta) % len(cands)].id
+        self.target_manual = True
 
     def clear_target(self):
-        self.target_rank = None        # back to auto-lock
+        """Back to auto: release the manual lock; the next resolve re-acquires."""
+        self.aim_id = None
+        self.target_manual = False
 
     # ---- update ----
     def update(self, world, move_dir, dt):
