@@ -141,23 +141,42 @@ def draw_menu(surf, g, t):
         "1 / 2 / 3 ............. pulse blaster / scattergun / homing missiles",
         "P ..................... pause",
         "                   ",
-        "shields regen when unscathed. salvage repairs the ship.",
+        "shields regen when unscathed. salvage repairs armor + hull.",
+        "                   ",
+        "DIFFICULTY: %s" % (g.difficulty.upper()
+                            if getattr(g, "difficulty", None) else "STANDARD"),
+        "1=easy   2=standard   3=hard   (choose in the menu)",
     ]
     for i, line in enumerate(lines):
         if line.strip():
-            text(surf, line, 22, (160, 175, 205), W // 2, cy - 10 + i * 30, align="center")
+            c = (255, 225, 150) if line.startswith("DIFFICULTY") else (160, 175, 205)
+            text(surf, line, 22, c, W // 2, cy - 10 + i * 30, align="center",
+                 bold=line.startswith("DIFFICULTY"))
     if int(t * 2) % 2 == 0:
-        text(surf, "PRESS  ENTER  TO  LAUNCH", 30, (255, 235, 140), W // 2, cy + 190,
+        text(surf, "PRESS  ENTER  TO  LAUNCH", 30, (255, 235, 140), W // 2, cy + 230,
              align="center", bold=True)
 
 
-def draw_pause(surf):
+def draw_pause(surf, g=None):
     from config import W, H
     ov = pygame.Surface((W, H), pygame.SRCALPHA)
     ov.fill((4, 6, 14, 140))
     surf.blit(ov, (0, 0))
-    text(surf, "PAUSED", 72, (200, 215, 240), W // 2, H // 2 - 30, align="center", bold=True)
-    text(surf, "P / ENTER to resume", 24, (140, 155, 185), W // 2, H // 2 + 30, align="center")
+    text(surf, "PAUSED", 72, (200, 215, 240), W // 2, H // 2 - 190, align="center", bold=True)
+    lines = [
+        "WASD / ARROWS ....... flight (inertial thrust)",
+        "1 / 2 / 3 ........... pulse / scatter / homing missiles",
+        "[  /  ] ............. manual lock: previous / next target",
+        "T ................... back to auto-lock (nearest ship)",
+        "P / ESC ............. pause / resume",
+        "R ................... restart the run",
+    ]
+    for i, line in enumerate(lines):
+        text(surf, line, 22, (160, 175, 205), W // 2, H // 2 - 90 + i * 30, align="center")
+    if g is not None and getattr(g, "difficulty", None):
+        text(surf, "difficulty: %s" % g.difficulty.upper(), 22, (140, 155, 185),
+             W // 2, H // 2 - 90 + len(lines) * 30 + 12, align="center")
+    text(surf, "P / ENTER to resume", 24, (140, 155, 185), W // 2, H // 2 + 210, align="center")
 
 
 def draw_gameover(surf, g, t):

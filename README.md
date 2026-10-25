@@ -71,7 +71,7 @@ AUTOQUIT=20 ./scripts/soak_lan.sh   # host bot + client bot, no exceptions, scre
 - **Defense layers:** bullets eat your **shield** first (no overshoot), then
   **armor**, then **hull**. Shield regenerates ~4 s after your last hit.
   Salvage orbs you pick up from kills score points *and* partially repair
-  shield → armor → hull.
+  **armor and hull only** (shields come back via regeneration).
 - **Co-op revive (fleet, not solo, decides the run):** when a ship is
   destroyed it is *downed*, not gone — a beacon with a channel ring. A
   teammate standing within range auto-channels the revive (~3 s); getting hit
@@ -94,6 +94,10 @@ AUTOQUIT=20 ./scripts/soak_lan.sh   # host bot + client bot, no exceptions, scre
   that slot; `T` returns to auto. Manual locks render gold so co-op players
   can tell them apart. In LAN play the same ops ride over the wire (`t` field,
   one-shot like weapon switches).
+- **Difficulty:** pick **easy / standard / hard** on the menu (`1` / `2` / `3`).
+  The levels scale enemy HP, damage, speed and wave size around the
+  playtest-verified standard baseline (a no-aim pilot dies in ~10–16 s on
+  standard; easy stretches that roughly, hard cuts it).
 - Score, kill feed, wave announcements, damage flash + screen shake,
   explosions, missile trails, salvage magnetism, low-hull warning pulse.
 

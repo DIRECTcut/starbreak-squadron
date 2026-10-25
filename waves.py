@@ -26,15 +26,21 @@ class Waves:
         self.pending = []
         self.stagger_timer = 0.0
         self.spawned_ever = 0
+        self.count_scale = 1.0  # set per-difficulty by the Game
 
     def composition(self, wave):
-        """Return a list of enemy kinds for the given wave number."""
+        """Return a list of enemy kinds for the given wave number.
+        Group sizes are scaled by self.count_scale (difficulty); 1.0 = standard."""
         n = max(1, wave)
+
+        def s(k):
+            return max(0, int(round(k * self.count_scale)))
+
         kinds = []
-        kinds += ["scout"] * min(3 + n, 9)
-        kinds += ["gunner"] * max(0, n - 1)
-        kinds += ["brute"] * max(0, (n - 1) // 2)
-        kinds += ["dart"] * (min(n - 1, 5) if n >= 2 else 0)
+        kinds += ["scout"] * s(min(3 + n, 9))
+        kinds += ["gunner"] * s(max(0, n - 1))
+        kinds += ["brute"] * s(max(0, (n - 1) // 2))
+        kinds += ["dart"] * s(min(n - 1, 5)) if n >= 2 else []
         kinds = kinds[:16]  # sanity cap
         self.rng.shuffle(kinds)
         return kinds

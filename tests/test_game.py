@@ -66,19 +66,22 @@ class DefenseTest(unittest.TestCase):
             g.update(DT)
         self.assertEqual(p.shield, 60)  # still in regen delay window
 
-    def test_salvage_repairs_shield_then_armor(self):
+    def test_salvage_repairs_armor_and_hull_not_shield(self):
         g = make_game()
         g.start()
         p = g.player
         p.take_damage(g, 120)  # 100 into shield, 20 into armor
         self.assertEqual(p.shield, 0)
         self.assertEqual(p.armor, 80)
-        p.repair(100)  # scaled x0.4 -> +40, shield takes it first
-        self.assertEqual(p.shield, 40)
-        self.assertEqual(p.armor, 80)
-        p.repair(400)  # -> shield to max, remainder to armor
-        self.assertEqual(p.shield, config.SHIELD_MAX)
+        p.hull = 50.0
+        p.repair(100)  # scaled x0.4 -> +40: armor first, remainder to hull
+        self.assertEqual(p.shield, 0)          # salvage never restores shield
+        self.assertEqual(p.armor, 100)
+        self.assertEqual(p.hull, 70.0)
+        p.repair(1000)  # -> armor to max, hull to max
+        self.assertEqual(p.shield, 0)
         self.assertEqual(p.armor, config.ARMOR_MAX)
+        self.assertEqual(p.hull, config.HULL_MAX)
 
 
 class CombatTest(unittest.TestCase):
@@ -350,6 +353,57 @@ class CoopTest(unittest.TestCase):
                 break
         self.assertGreater(g.kills, 0)
         self.assertGreater(sum(p.total_damage_dealt for p in g.players), 0)
+
+
+class DifficultyTest(unittest.TestCase):
+    """Three difficulty levels scale enemy pressure monotonically."""
+
+    def _stats(self, diff, seed=77):
+        import random as _r
+        _r.seed(seed)
+        g = make_game(seed=seed, autopilot=False, bot="")
+        g.select_difficulty(diff)
+        s = g.make_enemy("scout", (400, 300))
+        return dict(hp=s.hp, dmg=s.attack["dmg"], speed=s.speed,
+                    count=len(g.waves.composition(3)))
+
+    def test_enemies_and_waves_scale_easy_lt_standard_lt_hard(self):
+        e, m, h = self._stats("easy"), self._stats("standard"), self._stats("hard")
+        for key in ("hp", "dmg", "speed", "count"):
+            self.assertLess(e[key], m[key], key)
+            self.assertLess(m[key], h[key], key)
+
+    def test_steady_probe_survives_longer_on_easy_than_hard(self):
+        def survive(difficulty, seed=11):
+            import random as _r
+            _r.seed(seed)
+            g = make_game(seed=seed, autopilot=True, bot="steady")
+            g.select_difficulty(difficulty)
+            g.start()
+            dt = 1.0 / 60.0
+            t = 0.0
+            for _ in range(60 * 120):      # up to 120 s of sim
+                g.update(dt)
+                t += dt
+                if not any(p.alive for p in g.players):
+                    return t
+            return None                     # still alive at the cap
+        t_easy, t_mid, t_hard = (survive(d) for d in ("easy", "standard", "hard"))
+        self.assertIsNotNone(t_easy)
+        self.assertIsNotNone(t_hard)
+        self.assertGreater(t_easy, t_mid)
+        self.assertGreater(t_mid, t_hard)
+        self.assertGreater(t_easy - t_hard, 2.0)   # meaningful spread, not a fluke
+
+    def test_menu_keys_select_difficulty(self):
+        g = make_game()
+        self.assertEqual(g.state, "menu")
+        g.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1))
+        self.assertEqual(g.difficulty, "easy")
+        g.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_3))
+        self.assertEqual(g.difficulty, "hard")
+        self.assertEqual(g.waves.count_scale,
+                         config.DIFFICULTIES["hard"]["count"])
 
 
 class TargetingTest(unittest.TestCase):

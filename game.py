@@ -7,7 +7,7 @@ import pygame
 
 import config
 from config import (W, H, FPS, SAMPLE_HZ, WAVE_BUMP_PER_PLAYER,
-                    REVIVE_RADIUS, REVIVE_CHANNEL)
+                    DIFFICULTIES, DIFF_ORDER, REVIVE_RADIUS, REVIVE_CHANNEL)
 from entities import Bolt, Particle, norm
 from player import Player
 from enemies import Enemy
@@ -57,6 +57,7 @@ class Game:
         self.run_restarts = 0              # persists across in-run restarts
         self.net = None                    # Host object in net mode (client: None)
         self.local_name = "You"            # seat-0 name (host sets this from --name)
+        self.difficulty = "standard"       # easy / standard / hard (menu keys 1/2/3)
         self.net_inputs = {}               # pid -> ((x, y), wp|-1), host only
         self.run_id = 0                    # increments per new run (client resync)
         self.can_restart = True            # LAN clients cannot R-relaunch
@@ -99,6 +100,7 @@ class Game:
         self.orbs = []
         self.particles = []
         self.waves = Waves(self.seed)
+        self.waves.count_scale = DIFFICULTIES[self.difficulty]["count"]
         self.score = 0  # team score; kept in lockstep with per-player totals
         self.kills = 0
         self.rings = []  # (pos, radius, t_left, color) shockwaves
@@ -126,9 +128,11 @@ class Game:
         self._close_session()
         mode = (f"bot-{'-'.join(self.bots)}" if self.autopilot
                 else ("play" if len(self.players) == 1 else "coop"))
-        self.session = Session(self.sessions_dir, mode,
+        name = f"-{self.difficulty}" if self.difficulty != "standard" else ""
+        self.session = Session(self.sessions_dir, mode + name,
                                {"seed": self.seed, "bot": "-".join(self.bots) or "human",
-                                "players": len(self.players)})
+                                "players": len(self.players),
+                                "difficulty": self.difficulty})
         self.session.open()
         self.sess_dt = 0.0
 
@@ -170,8 +174,25 @@ class Game:
         self.state = "menu"
 
     # -------------------------------------------------------------- world API
+    def select_difficulty(self, name):
+        """easy / standard / hard: menu keys 1/2/3 or --difficulty."""
+        if name in DIFFICULTIES:
+            self.difficulty = name
+            self.waves.count_scale = DIFFICULTIES[name]["count"]
+            self.announce("DIFFICULTY: %s" % name.upper(), 1.2)
+
     def make_enemy(self, kind, pos):
         e = Enemy(kind, pos)
+        # difficulty multipliers (calibrated from playtest sessions):
+        # enemy HP, speed, damage/ram. Salvage economy stays constant.
+        d = DIFFICULTIES[self.difficulty]
+        e.hp *= d["hp"]
+        e.max_hp *= d["hp"]
+        e.speed = e.speed * d["speed"]
+        e.attack = dict(e.attack)          # copy: the kind table is shared
+        e.attack["dmg"] = e.attack["dmg"] * d["dmg"]
+        if e.ram:
+            e.ram = e.ram * d["dmg"]
         # scale with wave so late waves actually bite; each teammate adds half a
         # wave's worth of difficulty (more bodies to focus = harder).
         half_wave = WAVE_BUMP_PER_PLAYER * (len(self.players) - 1)
@@ -613,7 +634,7 @@ class Game:
         draw_hud(s, self)
         draw_damage_overlay(s, self)
         if self.state == "pause":
-            draw_pause(s)
+            draw_pause(s, self)
         elif self.state == "over":
             draw_gameover(s, self, self.t)
 
@@ -680,6 +701,12 @@ class Game:
         if self.state == "menu":
             if k in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                 self.start()
+            elif k == pygame.K_1:
+                self.select_difficulty("easy")
+            elif k == pygame.K_2:
+                self.select_difficulty("standard")
+            elif k == pygame.K_3:
+                self.select_difficulty("hard")
         elif self.state == "play":
             if k in (pygame.K_p, pygame.K_ESCAPE):
                 self.state = "pause"

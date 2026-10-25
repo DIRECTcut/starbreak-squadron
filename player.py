@@ -103,11 +103,9 @@ class Player:
         self.hit_flash = 0.0
 
     def repair(self, pts):
-        """Salvage economy: score first, partial repair second."""
+        """Salvage economy: score first, partial repair second.
+        Salvage restores armor and hull only - shields come back via regen."""
         pts = pts * 0.4  # salvage is mostly score; repair is a bonus
-        a = min(pts, SHIELD_MAX - self.shield)
-        self.shield += a
-        pts -= a
         a = min(pts, ARMOR_MAX - self.armor)
         self.armor += a
         pts -= a

@@ -50,6 +50,9 @@ def main():
                          'e.g. "weave,steady" flies two bot players. In LAN '
                          "mode a --bot ships one pilot automatically")
     ap.add_argument("--mute", action="store_true", help="disable sound")
+    ap.add_argument("--difficulty", default="standard",
+                    choices=["easy", "standard", "hard"],
+                    help="enemy scaling (menu keys 1/2/3 also work)")
     ap.add_argument("--no-log", action="store_true",
                     help="do not write a session log")
     ap.add_argument("--host", action="store_true",
@@ -96,6 +99,7 @@ def main():
         from net.host import Host
         g = Game(seed=args.seed, autopilot=bool(bot), mute=args.mute,
                  bot=bot, log_sessions=not args.no_log)
+        g.select_difficulty(args.difficulty)
         g.local_name = name               # seat-0 ship takes the --name flag
         if g.players:
             g.players[0].name = name
@@ -117,6 +121,7 @@ def main():
 
     g = Game(seed=args.seed, autopilot=bool(args.selftest), mute=args.mute,
              bot=bot, log_sessions=not args.no_log)
+    g.select_difficulty(args.difficulty)
     if args.selftest:
         ok, _ = g.run_selftest(args.selftest, screenshot=args.screenshot)
         pygame_quit()

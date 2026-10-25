@@ -29,6 +29,29 @@ REVIVE_CHANNEL = 3.0           # seconds of continuous presence needed
 REVIVE_HULL_FRAC = 0.5         # revived with this fraction of max hull, 0 shield/armor
 WAVE_BUMP_PER_PLAYER = 0.5     # extra "synthetic waves" of difficulty per teammate
 
+# Difficulty levels: multipliers over the standard baseline, calibrated from
+# collected playtest sessions (steady no-aim bot dies ~10s; active solo
+# humans reach wave 1-10 over 25-350s; duos reach wave 5 in ~120s).
+DIFFICULTIES = {
+    "easy":     dict(hp=0.80, dmg=0.70, speed=0.90, count=0.75),
+    "standard": dict(hp=1.00, dmg=1.00, speed=1.00, count=1.00),
+    "hard":     dict(hp=1.30, dmg=1.40, speed=1.08, count=1.25),
+}
+DIFF_ORDER = ["easy", "standard", "hard"]
+
+# Difficulty levels: multipliers on the playtest-verified standard baseline
+# (no-aim pilot dies ~10-16 s; active solo runs 25-350 s; duos reach wave 5).
+#   hp    : enemy HP (dart included)
+#   dmg   : attack damage and dart ram
+#   speed : enemy movement speed
+#   count : enemies per wave
+DIFFICULTIES = {
+    "easy":     dict(hp=0.75, dmg=0.70, speed=0.85, count=0.75),
+    "standard": dict(hp=1.00, dmg=1.00, speed=1.00, count=1.00),
+    "hard":     dict(hp=1.30, dmg=1.35, speed=1.10, count=1.25),
+}
+DIFF_ORDER = ["easy", "standard", "hard"]
+
 # ---- Misc ----
 BOLT_MARGIN = 90                # cull bullets beyond this offscreen margin
 PARTICLE_CAP = 900
