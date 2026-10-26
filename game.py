@@ -17,7 +17,7 @@ from weapons import WEAPONS, WeaponSpec
 from audio import Sfx
 from stars import Starfield, make_nebula
 from hud import (draw_hud, draw_menu, draw_pause, draw_gameover,
-                 draw_damage_overlay, draw_player_extras)
+                 draw_damage_overlay, draw_offscreen_indicators, draw_player_extras)
 from telemetry import Session
 
 V2 = pygame.math.Vector2
@@ -658,6 +658,8 @@ class Game:
                     s.set_clip(old_clip)
 
         draw_hud(s, self)
+        if self.state == "play":
+            draw_offscreen_indicators(s, self)
         draw_damage_overlay(s, self)
         if self.state == "pause":
             draw_pause(s, self)

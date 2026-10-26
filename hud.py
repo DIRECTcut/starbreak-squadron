@@ -86,6 +86,92 @@ def draw_hud(surf, g):
              W // 2, H // 2 - 120, align="center", bold=True)
 
 
+def offscreen_enemy_markers(g, max_markers=8, inset=46, visible_margin=60):
+    """Edge-of-screen markers for live enemies outside the local viewport.
+
+    Pure (no drawing): returns a list of dicts sorted by distance:
+        x, y       marker point on the inset edge rect
+        ang        heading of the enemy (radians, screen space)
+        dist       world distance from the local pilot
+        color      enemy color
+        label      formatted distance ("850 m" / "1.4 km")
+        extra      count of further enemies folded into this one (0 = own)
+    The `max_markers` nearest enemies each get a chevron; the rest are
+    aggregated into ONE "+N" marker at their circular mean heading.
+    """
+    from config import W, H
+
+    p = g.player
+    items = []
+    for e in g.enemies:
+        if getattr(e, "dead", False):
+            continue
+        dx = e.pos.x - p.pos.x
+        dy = e.pos.y - p.pos.y
+        d = math.hypot(dx, dy)
+        if d < 1e-6:
+            continue
+        sx = e.pos.x - g.cam.x + W / 2
+        sy = e.pos.y - g.cam.y + H / 2
+        if (visible_margin <= sx <= W - visible_margin and
+                visible_margin <= sy <= H - visible_margin):
+            continue                     # already on screen: no marker
+        items.append({"ang": math.atan2(dy, dx), "dist": d, "color": e.color})
+    if not items:
+        return []
+    items.sort(key=lambda m: m["dist"])
+
+    def edge_point(ang):
+        c, s = math.cos(ang), math.sin(ang)
+        hw, hh = W / 2 - inset, H / 2 - inset
+        tx = hw / abs(c) if abs(c) > 1e-9 else float("inf")
+        ty = hh / abs(s) if abs(s) > 1e-9 else float("inf")
+        t = min(tx, ty)
+        return (W / 2 + c * t, H / 2 + s * t)
+
+    def fmt(d):
+        return f"{int(d)} m" if d < 1000 else f"{d / 1000:.1f} km"
+
+    out = []
+    for m in items[:max_markers]:
+        x, y = edge_point(m["ang"])
+        out.append({"x": x, "y": y, "ang": m["ang"], "dist": m["dist"],
+                    "color": m["color"], "label": fmt(m["dist"]), "extra": 0})
+    rest = items[max_markers:]
+    if rest:
+        sx = sum(math.cos(m["ang"]) for m in rest) / len(rest)
+        sy = sum(math.sin(m["ang"]) for m in rest) / len(rest)
+        ang = math.atan2(sy, sx)
+        x, y = edge_point(ang)
+        out.append({"x": x, "y": y, "ang": ang,
+                    "dist": min(m["dist"] for m in rest),
+                    "color": rest[0]["color"], "label": fmt(min(m["dist"] for m in rest)),
+                    "extra": len(rest)})
+    return out
+
+
+def draw_offscreen_indicators(surf, g):
+    for m in offscreen_enemy_markers(g):
+        dx, dy = math.cos(m["ang"]), math.sin(m["ang"])
+        px, py = m["x"], m["y"]
+        nx, ny = -dy, dx            # perpendicular
+        tip = (px + dx * 13, py + dy * 13)
+        poly = [tip,
+                (px - dx * 7 + nx * 9, py - dy * 7 + ny * 9),
+                (px - dx * 7 - nx * 9, py - dy * 7 - ny * 9)]
+        col = m["color"]
+        pygame.draw.polygon(surf, (16, 20, 34), poly)
+        pygame.draw.polygon(surf, col, poly, 2)
+        # heading-inward label stack
+        lx, ly = px - dx * 30, py - dy * 30
+        if m["extra"]:
+            text(surf, f"+{m['extra']}", 20, (235, 235, 250), lx, ly - 12,
+                 align="center", bold=True)
+            text(surf, m["label"], 14, (165, 175, 200), lx, ly + 8, align="center")
+        else:
+            text(surf, m["label"], 15, (185, 195, 220), lx, ly, align="center")
+
+
 def draw_player_extras(surf, g, ox=0, oy=0):
     """In-world identity: name tag + compact defense bars over each ship,
     revive-progress ring over downed bodies."""
