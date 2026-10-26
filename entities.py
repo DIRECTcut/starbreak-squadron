@@ -41,10 +41,11 @@ class Particle:
         self.vel *= max(0.0, 1.0 - 2.2 * dt)
         self.life -= dt
 
-    def draw(self, surf):
+    def draw(self, surf, ox=0, oy=0):
         f = max(0.0, self.life / self.max_life)
         r = max(1, int(self.size * f + 0.5))
-        pygame.draw.circle(surf, self.color, (int(self.pos.x), int(self.pos.y)), r)
+        pygame.draw.circle(surf, self.color,
+                           (int(self.pos.x) + ox, int(self.pos.y) + oy), r)
 
 
 _NEXT_ID = [0]
@@ -96,8 +97,12 @@ class Bolt:
                 0.35, (255, 190, 120), 3)
         self.pos += self.vel * dt
         self.life -= dt
+        # cull relative to the viewport (infinite world: absolute screen bounds
+        # would destroy every bolt once the pilot flies far from the origin)
         m = BOLT_MARGIN
-        if self.pos.x < -m or self.pos.x > W + m or self.pos.y < -m or self.pos.y > H + m:
+        cx, cy = world.cam.x, world.cam.y
+        if (self.pos.x < cx - W / 2 - m or self.pos.x > cx + W / 2 + m or
+                self.pos.y < cy - H / 2 - m or self.pos.y > cy + H / 2 + m):
             self.life = min(self.life, 0.0)
 
 
@@ -131,9 +136,10 @@ class Orb:
             world.collect_orb(self, player)
             self.life = 0.0
 
-    def draw(self, surf):
+    def draw(self, surf, ox=0, oy=0):
         pulse = 3.0 + 1.5 * math.sin(self.t * 6.0)
         fade = min(1.0, self.life / 3.0)
         c = tuple(int(x * fade) for x in (255, 230, 120))
-        pygame.draw.circle(surf, (90, 80, 30), (int(self.pos.x), int(self.pos.y)), int(pulse) + 3)
-        pygame.draw.circle(surf, c, (int(self.pos.x), int(self.pos.y)), int(pulse))
+        x, y = int(self.pos.x) + ox, int(self.pos.y) + oy
+        pygame.draw.circle(surf, (90, 80, 30), (x, y), int(pulse) + 3)
+        pygame.draw.circle(surf, c, (x, y), int(pulse))

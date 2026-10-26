@@ -1,21 +1,16 @@
 """Wave spawning with staggered entries."""
+import math
 import random
 
 from enemies import KINDS
 
 
-def spawn_position(rng):
-    """A point just outside a random screen edge."""
-    from config import W, H, SPAWN_MARGIN
-    side = rng.randrange(4)
-    m = SPAWN_MARGIN
-    if side == 0:
-        return (rng.uniform(0, W), -m)
-    if side == 1:
-        return (rng.uniform(0, W), H + m)
-    if side == 2:
-        return (-m, rng.uniform(0, H))
-    return (W + m, rng.uniform(0, H))
+def spawn_position(rng, focus):
+    """A point on a spawn ring around `focus` (infinite-world spawn)."""
+    from config import SPAWN_DIST
+    ang = rng.uniform(0.0, math.tau)
+    d = rng.uniform(*SPAWN_DIST)
+    return (focus[0] + math.cos(ang) * d, focus[1] + math.sin(ang) * d)
 
 
 class Waves:
@@ -55,7 +50,9 @@ class Waves:
                 self.stagger_timer -= dt
                 if self.stagger_timer <= 0:
                     kind = self.pending.pop()
-                    world.enemies.append(world.make_enemy(kind, spawn_position(self.rng)))
+                    focus = world.players[0].pos if world.players else (0, 0)
+                    world.enemies.append(
+                        world.make_enemy(kind, spawn_position(self.rng, (focus.x, focus.y))))
                     self.spawned_ever += 1
                     self.stagger_timer = 0.75
         else:

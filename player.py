@@ -177,17 +177,6 @@ class Player:
             self.vel = self.vel / self.vel.length() * PLAYER_MAX_SPEED
         self.pos += self.vel * dt
 
-        # arena bounds
-        m = 18
-        if self.pos.x < m:
-            self.pos.x, self.vel.x = m, max(0.0, self.vel.x)
-        elif self.pos.x > W - m:
-            self.pos.x, self.vel.x = W - m, min(0.0, self.vel.x)
-        if self.pos.y < m:
-            self.pos.y, self.vel.y = m, max(0.0, self.vel.y)
-        elif self.pos.y > H - m:
-            self.pos.y, self.vel.y = H - m, min(0.0, self.vel.y)
-
         # shield regeneration (delayed)
         self.shield_timer -= dt
         if self.shield < SHIELD_MAX and self.shield_timer <= 0:
@@ -248,8 +237,8 @@ class Player:
             self.vel -= direction * 220
             self.take_damage(world, dmg)
 
-    def draw(self, surf, t, is_local=True):
-        x, y = int(self.pos.x), int(self.pos.y)
+    def draw(self, surf, t, is_local=True, ox=0, oy=0):
+        x, y = int(self.pos.x + ox), int(self.pos.y + oy)
         a = self.heading
         cos, sin = math.cos(a), math.sin(a)
 

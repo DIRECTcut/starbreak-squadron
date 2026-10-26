@@ -53,9 +53,12 @@ DIFFICULTIES = {
 DIFF_ORDER = ["easy", "standard", "hard"]
 
 # ---- Misc ----
-BOLT_MARGIN = 90                # cull bullets beyond this offscreen margin
+BOLT_MARGIN = 90                # extra cull margin (viewport-relative)
 PARTICLE_CAP = 900
-SPAWN_MARGIN = 50               # enemies spawn offscreen this far
+ESCAPE_RADIUS = 1800.0          # enemy despawns beyond this from the nearest pilot
+SPAWN_DIST = (500.0, 800.0)     # enemy spawn ring radius around the local pilot (just at/inside aim range)
+CAM_LERP = 6.0                  # camera chase smoothing
+SPAWN_MARGIN = 50               # legacy (unused)
 
 # ---- Session telemetry ----
 SESSIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessions")

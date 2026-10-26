@@ -133,16 +133,7 @@ class Enemy:
         self.vel += (want - self.vel) * k
         self.pos += self.vel * dt
 
-        # soft arena clamp
-        m = 30
-        if not (m <= self.pos.x <= W):
-            self.vel.x *= -0.6
-            self.pos.x = max(m, min(W, self.pos.x))
-        if not (m <= self.pos.y <= H):
-            self.vel.y *= -0.6
-            self.pos.y = max(m, min(H, self.pos.y))
-
-        # heading
+        # heading (open space: no arena walls, culling happens in Game.update)
         if self.vel.length() > 20:
             want_a = math.atan2(self.vel.y, self.vel.x)
             d = angle_lerp(self.angle, want_a, min(1.0, 6 * dt))
@@ -187,8 +178,8 @@ class Enemy:
             ang, a["dmg"], a["speed"], self.color, 4)
         world.sfx.play("eshot")
 
-    def draw(self, surf):
-        x, y = int(self.pos.x), int(self.pos.y)
+    def draw(self, surf, ox=0, oy=0):
+        x, y = int(self.pos.x + ox), int(self.pos.y + oy)
         a = self.angle
         r = self.radius
         flash = self.hit_flash > 0.1 and int(self.pos.x * 7) % 2 == 0

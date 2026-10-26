@@ -86,13 +86,13 @@ def draw_hud(surf, g):
              W // 2, H // 2 - 120, align="center", bold=True)
 
 
-def draw_player_extras(surf, g):
+def draw_player_extras(surf, g, ox=0, oy=0):
     """In-world identity: name tag + compact defense bars over each ship,
     revive-progress ring over downed bodies."""
     from config import SHIELD_MAX, ARMOR_MAX, HULL_MAX, REVIVE_CHANNEL
 
     for i, p in enumerate(g.players):
-        x, y = int(p.pos.x), int(p.pos.y)
+        x, y = int(p.pos.x) + ox, int(p.pos.y) + oy
         if p.downed:
             frac = p.revive_progress / REVIVE_CHANNEL
             r = 26

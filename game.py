@@ -7,7 +7,8 @@ import pygame
 
 import config
 from config import (W, H, FPS, SAMPLE_HZ, WAVE_BUMP_PER_PLAYER,
-                    DIFFICULTIES, DIFF_ORDER, REVIVE_RADIUS, REVIVE_CHANNEL)
+                    DIFFICULTIES, DIFF_ORDER, REVIVE_RADIUS, REVIVE_CHANNEL,
+                    CAM_LERP, ESCAPE_RADIUS)
 from entities import Bolt, Particle, norm
 from player import Player
 from enemies import Enemy
@@ -67,6 +68,8 @@ class Game:
         self.t = 0.0
         self.stars = Starfield(seed)
         self.nebula = make_nebula()
+        # viewport camera: world point at screen center (follows local pilot)
+        self.cam = V2(W / 2, H - 90)
         self.state = "menu"
         self.reset()
         self.state = "menu"
@@ -105,6 +108,7 @@ class Game:
         self.kills = 0
         self.rings = []  # (pos, radius, t_left, color) shockwaves
         self.shake_t = 0.0
+        self.cam.update(self.players[0].pos)
         self.announce_text = None
         self.announce_t = 0.0
         self.death_t = 0.0
@@ -380,6 +384,10 @@ class Game:
             self.fx = []  # no host: nobody to play one-shot fx for
         self.stars.update(local.vel if local.alive else V2(0, 0), dt)
 
+        # camera: chase the local pilot; the world is open (no arena walls)
+        if self.state == "play":
+            self.cam += (local.pos - self.cam) * min(1.0, CAM_LERP * dt)
+
         # telemetry sampling (fixed cadence, independent of frame rate)
         if self.session is not None and self.state in ("play", "over"):
             self.sess_dt += dt
@@ -429,6 +437,7 @@ class Game:
         # projectiles
         for b in self.bolts:
             b.update(self, dt)
+        self.bolts = [b for b in self.bolts if not b.dead]   # expired bolts (memory bound)
         self._resolve_bolt_collisions()
 
         # cull dead enemies -> rewards
@@ -449,6 +458,18 @@ class Game:
             self.sfx.play("explosion", volume=0.7)
             for _ in range(e.orbs):
                 self.orbs.append(_make_orb(e.pos))
+
+        # deep-space escape: enemies that stray beyond ESCAPE_RADIUS from every
+        # living pilot lose the fight (no reward, no orb) so the wave still
+        # clears when the player simply flies away. Keeps the simulation bounded
+        # no matter how far the local player drifts.
+        alive_pos = [p.pos for p in self.players if p.alive]
+        if alive_pos:
+            escaped = [e for e in self.enemies
+                       if min((e.pos - q).length() for q in alive_pos) > ESCAPE_RADIUS]
+            for e in escaped:
+                self.enemies.remove(e)
+                self.rings.append([V2(e.pos), 40, 0.5, (90, 110, 140)])
 
         # orbs: each one is pulled toward the nearest living player
         for o in self.orbs:
@@ -571,41 +592,46 @@ class Game:
         s = self.screen
         s.fill((10, 12, 24))
         s.blit(self.nebula, (0, 0))
-        self.stars.draw(s, self.t)
+        # world -> screen offset from the camera (viewport into open space)
+        ox = int(W / 2 - self.cam.x)
+        oy = int(H / 2 - self.cam.y)
+        self.view_ox, self.view_oy = ox, oy
+        self.stars.draw(s, self.t, self.cam.x, self.cam.y)
 
         if self.state == "menu":
             draw_menu(s, self, self.t)
             return
 
         for o in self.orbs:
-            o.draw(s)
+            o.draw(s, ox, oy)
 
         for b in self.bolts:
             c = b.spec.color
-            x, y = int(b.pos.x), int(b.pos.y)
+            x, y = int(b.pos.x) + ox, int(b.pos.y) + oy
             pygame.draw.circle(s, tuple(v // 4 for v in c), (x, y), b.radius + 4)
             pygame.draw.circle(s, tuple(min(255, v + 60) for v in c), (x, y), b.radius)
             pygame.draw.circle(s, (255, 255, 255), (x, y), max(1, b.radius - 2))
 
         for e in self.enemies:
-            e.draw(s)
+            e.draw(s, ox, oy)
 
-        self._draw_aim_lock(s)
+        self._draw_aim_lock(s, ox, oy)
 
         for i, pp in enumerate(self.players):
-            pp.draw(s, self.t, is_local=(i == 0))
+            pp.draw(s, self.t, is_local=(i == 0), ox=ox, oy=oy)
 
-        draw_player_extras(s, self)
+        draw_player_extras(s, self, ox, oy)
 
         for pt in self.particles:
-            pt.draw(s)
+            pt.draw(s, ox, oy)
 
         for pos, radius, t_left, color in self.rings:
             f = min(1.0, t_left / 0.45)
             grow = 1.0 + (1.0 - f) * 0.9
             col = tuple(int(c * min(1.0, f + 0.2)) for c in color)
-            pygame.draw.circle(s, col, (int(pos.x), int(pos.y)), int(radius * grow), 2)
-            pygame.draw.circle(s, tuple(c // 2 for c in col), (int(pos.x), int(pos.y)), int(radius * grow * 0.7), 1)
+            px, py = int(pos.x) + ox, int(pos.y) + oy
+            pygame.draw.circle(s, col, (px, py), int(radius * grow), 2)
+            pygame.draw.circle(s, tuple(c // 2 for c in col), (px, py), int(radius * grow * 0.7), 1)
 
         # screen shake: self-blit shift, then repaint exposed strips with fresh background
         if self.shake_t > 0:
@@ -628,7 +654,7 @@ class Game:
                     s.set_clip(band)
                     s.fill((10, 12, 24))
                     s.blit(self.nebula, (0, 0))
-                    self.stars.draw(s, self.t)
+                    self.stars.draw(s, self.t, self.cam.x, self.cam.y)
                     s.set_clip(old_clip)
 
         draw_hud(s, self)
@@ -660,18 +686,18 @@ class Game:
             "restarts": self.run_restarts,
         }
 
-    def _draw_aim_lock(self, s):
+    def _draw_aim_lock(self, s, ox=0, oy=0):
         for p in self.players:
-            self._draw_aim_lock_for(s, p)
+            self._draw_aim_lock_for(s, p, ox, oy)
 
-    def _draw_aim_lock_for(self, s, p):
+    def _draw_aim_lock_for(self, s, p, ox=0, oy=0):
         if not p.alive:
             return
         tgt = p.target(self.enemies)
         if tgt is None:
             return
-        ax, ay = int(p.pos.x), int(p.pos.y)
-        bx, by = int(tgt.pos.x), int(tgt.pos.y)
+        ax, ay = int(p.pos.x) + ox, int(p.pos.y) + oy
+        bx, by = int(tgt.pos.x) + ox, int(tgt.pos.y) + oy
         manual = getattr(p, "target_manual", False)
         c = (255, 210, 110) if manual else (95, 225, 255)
         line = [pygame.math.Vector2(ax, ay), pygame.math.Vector2(bx, by)]

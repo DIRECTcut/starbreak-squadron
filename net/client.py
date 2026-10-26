@@ -18,7 +18,7 @@ from collections import deque
 
 import pygame
 
-from config import W, H, FPS
+from config import W, H, FPS, CAM_LERP
 from weapons import WEAPONS, WeaponSpec
 from player import Player
 from enemies import Enemy
@@ -339,6 +339,12 @@ class ClientGame(Game):
         lp = self._local()
         vel = lp.vel if (lp is not None and lp.alive) else V2(0, 0)
         self.stars.update(vel, dt)
+        # camera follows the local pilot; the world is open (no arena walls)
+        if self.state == "play" and lp is not None:
+            if not getattr(self, "_cam_seeded", False):
+                self.cam.update(lp.pos)
+                self._cam_seeded = True
+            self.cam += (lp.pos - self.cam) * min(1.0, CAM_LERP * dt)
         self._update_particles(dt)
         for r in self.rings:
             r[2] -= dt
